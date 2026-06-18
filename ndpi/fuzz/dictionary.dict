@@ -1,0 +1,148 @@
+#USENET
+
+"AUTHINFO USER "
+"MODE READER\x0D\x0A"
+"HELP\x0D\x0A"
+
+#FTP_DATA
+
+"RIFF"
+"MZ\x00"
+"OggS"
+"PK\x03\x04"
+"\x00\x00\x01\xBA"
+"Rar!"
+"\x1A\x45\xDF\xA3"
+"\xFF\xD8"
+"GIF8"
+"\x3C\x3F\x70\x68"
+"\x23\x21\x2F\x62"
+"%PDF"
+"\x89PNG"
+"<htm"
+"\x0A<!D"
+"\x37\x7A\xBC\xAF"
+"\x1F\x8B\x08"
+"<!DO"
+"fLaC"
+"ID3\x03"
+"\xFF\xFB\x90\xC0"
+"\xED\xAB\xEE\xDB"
+"WzPa"
+"FLV\x01"
+"TAPE"
+"\xD0\xCF\x11\xE0"
+"\x3C\x25\x40\x20"
+"\x3C\x21\x2D\x2D"
+"!<ar"
+"<?xm"
+"<iq "
+"SPFI"
+"ABIF"
+"BZh9"
+"<cf"
+"<CF"
+".tem"
+".ite"
+".lef"
+
+#Some interesting user agent
+
+"Azureus "
+"BitTorrent"
+"BTWebClient"
+"Shareaza "
+"Mozilla"
+"Mozilla/4.0 "
+"Mozilla/4.0 (compatible; MSIE 6.0;"
+"Microsoft-Delivery-Optimization/"
+"Valve/Steam HTTP Client"
+"MSRPC"
+"Gnutella"
+"AirControl Agent v1.0"
+"gtk-gnutella"
+
+#HTTP methods
+
+"OPTIONS"
+"GET"
+"HEAD"
+"PATCH"
+"POST"
+"PUT"
+"DELETE"
+"TRACE"
+"CONNECT"
+"RPC_CONNECT"
+"RPC_IN_DATA"
+"RPC_OUT_DATA"
+"MKCOL"
+"MOVE"
+"COPY"
+"LOCK"
+"UNLOCK"
+"PROPFIND"
+"PROPPATCH"
+
+#HTTP Content Line
+"x-application/hl7-v2+er7"
+"x-application/hl7-v2+xml"
+"x-application/hl7-v3+xml"
+"x-application/fhir+xml"
+"x-application/fhir+json"
+"x-application/xml+cda"
+"application/java-vm"
+"application/ocsp-request"
+"application/ocsp-response"
+"application/vnd.apple.mpegurl"
+"application/x-mpegURL"
+"application/x-mpegurl"
+"application/json-rpc"
+"application/x-rtsp-tunnelled"
+"application/vnd.apache.thrift.binary"
+"application/vnd.apache.thrift.compact"
+"application/vnd.apache.thrift.json"
+
+#HTTP payload signatures
+
+"\x4D\x5A"
+"\x7F\x45\x4C\x46"
+"\xCF\xFA\xED\xFE"
+"#"
+"!"
+"/"
+"\x64\x65\x78\x0A\x30\x33\x35\x00"
+
+#Gnutella patterns
+
+"X-Queue:"
+"application/x-gnutella-"
+"GNUTELLA/"
+"GNUTELLA CONNECT/"
+"GTKG"
+"GND\x10"
+
+#Bittorrent signatures
+
+"Cache-Control: no-cache"
+"GET /data?fid="
+"Pragma: no-cache"
+":target20:"
+":find_node1:"
+"d1:ad2:id20:"
+":info_hash20:"
+":filter64"
+"d1:rd2:id20:"
+
+#Jabber
+
+"='im.truphone.com'"
+"=\"im.truphone.com\""
+
+#Mining
+
+"\"mining.subscribe\""
+"\"mining.configure\""
+"zcash"
+"\"agent\":\"xmr-stak-cpu"
+"\"method\": \"eth_submitLogin"

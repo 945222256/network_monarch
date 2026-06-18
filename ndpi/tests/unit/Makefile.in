@@ -1,0 +1,86 @@
+# Support for out-of-tree builds (VPATH)
+srcdir = @srcdir@
+top_srcdir = @top_srcdir@
+top_builddir = @top_builddir@
+VPATH = @srcdir@
+
+CC=@CC@
+LDFLAGS=@LDFLAGS@
+CXX=@CXX@
+CFLAGS=@CFLAGS@
+BUILD_MINGW=@BUILD_MINGW@
+EXE_SUFFIX=@EXE_SUFFIX@
+
+SRCHOME=$(top_srcdir)/src
+
+ifneq ($(OS),Windows_NT)
+AM_CFLAGS=-fPIC -DPIC
+else
+AM_CFLAGS=
+endif
+AM_CFLAGS+=-I$(SRCHOME)/include -I$(top_builddir)/src/include @NDPI_CFLAGS@ @JSONC_CFLAGS@ @PCAP_INC@ @ADDITIONAL_INCS@
+AM_LDFLAGS=@NDPI_LDFLAGS@
+ENABLE_STATIC        = @enable_static@
+ifeq ($(ENABLE_STATIC),yes)
+LIBNDPI=$(top_builddir)/src/lib/libndpi.a
+LIBNDPI_DEP=$(LIBNDPI)
+else
+LIBNDPI=-lndpi
+LIBNDPI_DEP=$(top_builddir)/src/lib/libndpi.so
+AM_LDFLAGS+=-L$(top_builddir)/src/lib
+endif
+LIBS=$(LIBNDPI) @PCAP_LIB@ @ADDITIONAL_LIBS@ @JSONC_LIBS@ @LIBS@
+HEADERS=$(SRCHOME)/include/ndpi_api.h $(SRCHOME)/include/ndpi_typedefs.h $(SRCHOME)/include/ndpi_protocol_ids.h
+HEADERS+=$(top_builddir)/src/include/ndpi_config.h $(top_builddir)/src/include/ndpi_define.h
+OBJS=unit
+PREFIX?=@prefix@
+
+ifneq ($(BUILD_MINGW),)
+
+ifeq ($(DISABLE_NPCAP),0)
+AM_CFLAGS+=-I@srcdir@/../windows/WpdPack/Include -I@srcdir@/../windows/WpdPack/Include/pcap
+else
+AM_CFLAGS+=-DDISABLE_NPCAP
+endif
+
+ifeq ($(DISABLE_NPCAP),0)
+
+ifneq ($(BUILD_MINGW_X64),)
+LIBS+=@srcdir@/../windows/WpdPack/Lib/x64/wpcap.lib
+else
+LIBS+=@srcdir@/../windows/WpdPack/Lib/wpcap.lib
+endif
+
+endif
+
+LIBS+=-Wl,-Bstatic -lpthread -Wl,-Bdynamic
+else
+LIBS+=-pthread
+endif
+
+all: unit$(EXE_SUFFIX)
+
+EXECUTABLE_SOURCES := unit.c
+COMMON_SOURCES := $(filter-out $(EXECUTABLE_SOURCES),$(wildcard *.c ))
+
+unit$(EXE_SUFFIX): $(LIBNDPI_DEP) unit.o
+	$(CC) $(AM_CFLAGS) $(CFLAGS) $(CPPFLAGS) $(AM_LDFLAGS) $(LDFLAGS) unit.o $(LIBS) -o $@
+
+%.o: %.c $(HEADERS) Makefile
+	$(CC) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c $< -o $@
+
+clean:
+	$(RM) *.o *.lo unit$(EXE_SUFFIX)
+	$(RM) .*.o.cmd .*.o.d
+	$(RM) -r build .libs .deps
+
+install:
+	echo ""
+
+distdir:
+
+distclean: clean
+	$(RM) Makefile
+
+check:
+	true # nothing to do here, done by invoking tests/do-unit.sh

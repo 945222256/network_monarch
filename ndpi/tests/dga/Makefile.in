@@ -1,0 +1,62 @@
+# Support for out-of-tree builds (VPATH)
+srcdir = @srcdir@
+top_srcdir = @top_srcdir@
+top_builddir = @top_builddir@
+VPATH = @srcdir@
+
+CC=@CC@
+LDFLAGS=@LDFLAGS@
+CXX=@CXX@
+CFLAGS=@CFLAGS@
+EXE_SUFFIX=@EXE_SUFFIX@
+
+SRCHOME=$(top_srcdir)/src
+
+ifneq ($(OS),Windows_NT)
+AM_CFLAGS=-fPIC -DPIC
+else
+AM_CFLAGS=
+endif
+AM_CFLAGS+=-I$(SRCHOME)/include -I$(top_builddir)/src/include @NDPI_CFLAGS@
+AM_LDFLAGS=@NDPI_LDFLAGS@
+ENABLE_STATIC        = @enable_static@
+ifeq ($(ENABLE_STATIC),yes)
+LIBNDPI=$(top_builddir)/src/lib/libndpi.a
+LIBNDPI_DEP=$(LIBNDPI)
+else
+LIBNDPI=-lndpi
+LIBNDPI_DEP=$(top_builddir)/src/lib/libndpi.so
+AM_LDFLAGS+=-L$(top_builddir)/src/lib
+endif
+LIBS=$(LIBNDPI) @ADDITIONAL_LIBS@ @LIBS@ -lpthread
+HEADERS=$(SRCHOME)/include/ndpi_api.h $(SRCHOME)/include/ndpi_typedefs.h $(SRCHOME)/include/ndpi_protocol_ids.h
+HEADERS+=$(top_builddir)/src/include/ndpi_config.h $(top_builddir)/src/include/ndpi_define.h
+OBJS=dga_evaluate
+PREFIX?=@prefix@
+
+all: dga_evaluate$(EXE_SUFFIX)
+
+EXECUTABLE_SOURCES := dga_evaluate.c
+COMMON_SOURCES := $(filter-out $(EXECUTABLE_SOURCES),$(wildcard *.c ))
+
+dga_evaluate$(EXE_SUFFIX): $(LIBNDPI_DEP) dga_evaluate.o
+	$(CC) $(AM_CFLAGS) $(CFLAGS) $(CPPFLAGS) $(AM_LDFLAGS) $(LDFLAGS) dga_evaluate.o $(LIBS) -o $@
+
+%.o: %.c $(HEADERS) Makefile
+	$(CC) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c $< -o $@
+
+clean:
+	$(RM) *.o *.lo dga_evaluate$(EXE_SUFFIX)
+	$(RM) .*.o.cmd .*.o.d
+	$(RM) -r build .libs .deps
+
+install:
+	echo ""
+
+distdir:
+
+distclean: clean
+	$(RM) Makefile
+
+check:
+	true # nothing to do here, done by invoking tests/do-dga.sh

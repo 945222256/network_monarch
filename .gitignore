@@ -1,0 +1,54 @@
+# ============================================================
+# Network Monarch - Git 忽略规则
+# ============================================================
+
+# ---- Rust 编译产物 ----
+target/
+*.pdb
+
+# ---- Node.js / 前端编译产物 ----
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ---- Tauri 编译产物 ----
+src-tauri/target/
+
+# ---- IDE / 编辑器 ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- 系统文件 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- GeoIP 数据库（运行时下载，不需要版本控制） ----
+*.mmdb
+*.mmdb.tmp
+
+# ---- 第三方源码克隆（仅作参考，不属于本项目） ----
+hubble/
+libmaxminddb/
+nxtrace/
+portmaster/
+sing-box/
+temp_parser/
+
+# ---- nDPI 编译产物（保留源码但忽略二进制） ----
+ndpi/windows/bin/
+ndpi/**/*.o
+ndpi/**/*.obj
+ndpi/**/*.lib
+ndpi/**/*.dll
+ndpi/**/*.exe
+
+# ---- WinDivert 驱动文件 ----
+*.sys
+
+# ---- 日志和临时文件 ----
+*.log
+npm-debug.log*

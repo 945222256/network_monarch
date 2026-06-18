@@ -1,0 +1,20 @@
+[package]
+name = "monarch_probe"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+etherparse = "0.20.1"
+futures-util = "0.3.32"
+netstat2 = "0.11.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sysinfo = "0.38.4"
+tokio = { version = "1.52.3", features = ["full"] }
+tokio-tungstenite = "0.29.0"
+windivert = { version = "0.6.0", features = ["vendored"] }
+maxminddb = "0.24"
+reqwest = { version = "0.12", features = ["blocking"] }
+
+[build-dependencies]
+bindgen = "0.72.1"
