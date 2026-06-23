@@ -41,8 +41,11 @@ export interface NodeInfo {
  */
 export const nodeRegistry: Map<string, NodeInfo> = new Map();
 
-/** 节点活跃判定的时间窗口：30 秒（毫秒值） */
-const ACTIVE_WINDOW_MS = 30_000;
+/** 节点活跃判定的时间窗口：5 分钟（毫秒值）
+ *  原来的 30 秒导致节点在地球上一闪而过看不清，
+ *  改为 5 分钟让用户有足够时间观察连接过的所有目的地。
+ */
+const ACTIVE_WINDOW_MS = 300_000;
 
 /**
  * 【S6 修复】节点注册表清理：过期节点驱逐机制

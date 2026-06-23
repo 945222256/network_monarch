@@ -108,16 +108,40 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
 
         scene.add(mesh);
 
+        // ======== 线框地球 (Wireframe Globe) ========
+        // 半径 300 与后端 lat_lon_to_xyz(lat, lon, 300.0) 匹配
+        // 提供地理位置参照，让蓝色节点的位置有直观意义
+        const GLOBE_RADIUS = 300;
+
+        // 主球体轮廓线（经纬网格）
+        const globeGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 36, 18);
+        const globeEdges = new THREE.EdgesGeometry(globeGeo);
+        const globeWire = new THREE.LineSegments(
+            globeEdges,
+            new THREE.LineBasicMaterial({ color: 0x1a3a5c, transparent: true, opacity: 0.25 })
+        );
+        scene.add(globeWire);
+        globeGeo.dispose(); // EdgesGeometry 已复制数据，释放原始几何体
+
+        // 赤道环（更亮，作为南北半球的参照）
+        const equatorGeo = new THREE.RingGeometry(GLOBE_RADIUS - 0.5, GLOBE_RADIUS + 0.5, 128);
+        const equatorMat = new THREE.MeshBasicMaterial({
+            color: 0x2a6496, transparent: true, opacity: 0.4, side: THREE.DoubleSide
+        });
+        const equator = new THREE.Mesh(equatorGeo, equatorMat);
+        equator.rotation.x = Math.PI / 2; // 水平放置
+        scene.add(equator);
+
         // ======== 节点球体 InstancedMesh ========
         // 用于渲染从 NodeManager 获取的活跃网络节点位置，
         // 与粒子流的 InstancedMesh 独立，使用标准 instanceMatrix 路径
         // 以支持 Three.js 的 Raycaster 交互拾取。
         const NODE_MAX_COUNT = 2000;
-        const nodeSphereGeo = new THREE.SphereGeometry(8, 16, 16);
+        const nodeSphereGeo = new THREE.SphereGeometry(14, 16, 16); // 半径 14（原 8），更清晰可辨
         const nodeSphereMat = new THREE.MeshBasicMaterial({
             color: 0x4db8ff,
             transparent: true,
-            opacity: 0.8,
+            opacity: 0.85,
         });
         const nodeMesh = new THREE.InstancedMesh(nodeSphereGeo, nodeSphereMat, NODE_MAX_COUNT);
         nodeMesh.frustumCulled = false;
@@ -126,6 +150,66 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
 
         // 复用单个 Matrix4 对象来设置每个节点实例的位置变换
         const nodeMatrix = new THREE.Matrix4();
+
+        // ======== 连接线（球心 → 节点射线） ========
+        // 每帧动态更新，可视化从用户位置到各目标服务器的连接方向
+        const CONNECTION_LINE_MAX = 2000;
+        const linePositions = new Float32Array(CONNECTION_LINE_MAX * 2 * 3); // 每条线 2 个顶点 × 3 坐标
+        const lineGeo = new THREE.BufferGeometry();
+        lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+        lineGeo.setDrawRange(0, 0); // 初始无线段
+        const lineMat = new THREE.LineBasicMaterial({
+            color: 0x1a8cff, transparent: true, opacity: 0.3
+        });
+        const connectionLines = new THREE.LineSegments(lineGeo, lineMat);
+        connectionLines.frustumCulled = false;
+        scene.add(connectionLines);
+
+        // ======== 节点文字标签（Sprite + CanvasTexture） ========
+        // 在每个节点球体旁显示 "国家 | IP" 文字，让用户一眼知道流量去了哪里
+        const labelSprites: THREE.Sprite[] = [];
+        const labelSpritePool: THREE.Sprite[] = []; // 对象池：回收不再使用的 Sprite
+
+        /**
+         * 从 Canvas 生成文字纹理的 Sprite
+         * @param text - 要显示的文字（如 "US | 142.250.72.14"）
+         * @returns THREE.Sprite 实例
+         */
+        function createLabelSprite(text: string): THREE.Sprite {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d')!;
+            canvas.width = 512;
+            canvas.height = 64;
+
+            // 半透明黑底 + 青蓝色文字
+            ctx.fillStyle = 'rgba(5, 10, 20, 0.7)';
+            ctx.roundRect(0, 0, canvas.width, canvas.height, 8);
+            ctx.fill();
+
+            ctx.font = 'bold 28px Consolas, monospace';
+            ctx.fillStyle = '#4db8ff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            const spriteMat = new THREE.SpriteMaterial({
+                map: texture, transparent: true, depthTest: false
+            });
+            const sprite = new THREE.Sprite(spriteMat);
+            sprite.scale.set(120, 15, 1); // 宽 120、高 15 的世界单位标签
+            return sprite;
+        }
+
+        /** 回收所有现有标签 Sprite 到对象池 */
+        function recycleLabelSprites(): void {
+            for (const sprite of labelSprites) {
+                scene.remove(sprite);
+                labelSpritePool.push(sprite);
+            }
+            labelSprites.length = 0;
+        }
 
         // ======== Raycaster 交互系统 ========
         const raycaster = new THREE.Raycaster();
@@ -223,9 +307,11 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
             // E. 更新 OrbitControls（处理惯性阻尼和自动旋转）
             controls.update();
 
-            // F. 更新节点球体 InstancedMesh
+            // F. 更新节点球体 InstancedMesh + 连接线 + 标签
             cachedActiveNodes = getActiveNodes();
             const nodeCount = Math.min(cachedActiveNodes.length, NODE_MAX_COUNT);
+
+            // F1. 更新节点球体位置
             for (let ni = 0; ni < nodeCount; ni++) {
                 const nodeInfo = cachedActiveNodes[ni];
                 nodeMatrix.identity();
@@ -235,6 +321,56 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
             nodeMesh.count = nodeCount;
             if (nodeCount > 0) {
                 nodeMesh.instanceMatrix.needsUpdate = true;
+            }
+
+            // F2. 更新连接线（球心 → 每个节点的射线）
+            const lineVertexCount = nodeCount * 2; // 每条线段 2 个顶点
+            for (let li = 0; li < nodeCount; li++) {
+                const nd = cachedActiveNodes[li];
+                const base = li * 6; // 2 顶点 × 3 坐标
+                // 起点：球心 (0, 0, 0)
+                linePositions[base + 0] = 0;
+                linePositions[base + 1] = 0;
+                linePositions[base + 2] = 0;
+                // 终点：节点位置
+                linePositions[base + 3] = nd.x;
+                linePositions[base + 4] = nd.y;
+                linePositions[base + 5] = nd.z;
+            }
+            lineGeo.setDrawRange(0, lineVertexCount);
+            (lineGeo.attributes['position'] as THREE.BufferAttribute).needsUpdate = true;
+
+            // F3. 更新文字标签（每秒最多更新一次，避免频繁 Canvas 重绘）
+            // 仅在节点数量变化时重建标签
+            if (labelSprites.length !== nodeCount) {
+                recycleLabelSprites();
+                for (let si = 0; si < nodeCount; si++) {
+                    const nd = cachedActiveNodes[si];
+                    const labelText = `${nd.country} | ${nd.ip}`;
+                    let sprite: THREE.Sprite;
+                    if (labelSpritePool.length > 0) {
+                        sprite = labelSpritePool.pop()!;
+                        // 更新已回收 Sprite 的纹理内容
+                        const oldMat = sprite.material as THREE.SpriteMaterial;
+                        if (oldMat.map) oldMat.map.dispose();
+                        const newSprite = createLabelSprite(labelText);
+                        oldMat.map = (newSprite.material as THREE.SpriteMaterial).map;
+                        oldMat.needsUpdate = true;
+                        newSprite.material.dispose(); // 释放临时材质
+                    } else {
+                        sprite = createLabelSprite(labelText);
+                    }
+                    // 标签定位在节点球体上方 25 个单位
+                    sprite.position.set(nd.x, nd.y + 25, nd.z);
+                    scene.add(sprite);
+                    labelSprites.push(sprite);
+                }
+            } else {
+                // 数量不变时只更新位置（节点可能移动了）
+                for (let si = 0; si < nodeCount; si++) {
+                    const nd = cachedActiveNodes[si];
+                    labelSprites[si].position.set(nd.x, nd.y + 25, nd.z);
+                }
             }
 
             // G. WebGPU 提交渲染
@@ -260,6 +396,21 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
             material.dispose();
             nodeSphereGeo.dispose();
             nodeSphereMat.dispose();
+            // 清理地球相关资源
+            globeEdges.dispose();
+            globeWire.material.dispose();
+            equatorGeo.dispose();
+            equatorMat.dispose();
+            // 清理连接线
+            lineGeo.dispose();
+            lineMat.dispose();
+            // 清理标签 Sprite
+            recycleLabelSprites();
+            for (const pooled of labelSpritePool) {
+                const mat = pooled.material as THREE.SpriteMaterial;
+                if (mat.map) mat.map.dispose();
+                mat.dispose();
+            }
         };
     }, []);
 
