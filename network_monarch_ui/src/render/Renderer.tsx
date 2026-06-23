@@ -7,6 +7,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 // 导入基于 TSL 构造的节点材质
 import { createParticleMaterial } from './Shaders';
+// 地球测地线弧计算 + 程序化地球纹理
+import { GLOBE_RADIUS, computeGeodesicArc, generateProceduralEarthTexture } from './GeoUtils';
 
 // 假设我们的 ECS 模块路径，按实际项目结构适配
 import { world } from '../ecs/world';
@@ -108,36 +110,34 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
 
         scene.add(mesh);
 
-        // ======== 线框地球 (Wireframe Globe) ========
+        // ======== 暗黑地球 (Textured Globe) ========
         // 半径 300 与后端 lat_lon_to_xyz(lat, lon, 300.0) 匹配
-        // 提供地理位置参照，让蓝色节点的位置有直观意义
-        const GLOBE_RADIUS = 300;
 
-        // 主球体轮廓线（经纬网格）
-        const globeGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 36, 18);
-        const globeEdges = new THREE.EdgesGeometry(globeGeo);
-        const globeWire = new THREE.LineSegments(
-            globeEdges,
-            new THREE.LineBasicMaterial({ color: 0x1a3a5c, transparent: true, opacity: 0.25 })
-        );
-        scene.add(globeWire);
-        globeGeo.dispose(); // EdgesGeometry 已复制数据，释放原始几何体
-
-        // 赤道环（更亮，作为南北半球的参照）
-        const equatorGeo = new THREE.RingGeometry(GLOBE_RADIUS - 0.5, GLOBE_RADIUS + 0.5, 128);
-        const equatorMat = new THREE.MeshBasicMaterial({
-            color: 0x2a6496, transparent: true, opacity: 0.4, side: THREE.DoubleSide
+        // 程序化生成地球纹理（大陆轮廓 + 城市灯光，无外部依赖）
+        const earthTexture = generateProceduralEarthTexture();
+        const earthGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 32);
+        const earthMat = new THREE.MeshBasicMaterial({
+            map: earthTexture,
+            transparent: true,
+            opacity: 0.85,
         });
-        const equator = new THREE.Mesh(equatorGeo, equatorMat);
-        equator.rotation.x = Math.PI / 2; // 水平放置
-        scene.add(equator);
+        const earthMesh = new THREE.Mesh(earthGeo, earthMat);
+        // Three.js 球体的 UV 映射与标准等距矩形投影一致，无需旋转
+        scene.add(earthMesh);
+
+        // 保留经纬网格线框叠加（增强赛博朋克科技感）
+        const wireGeo = new THREE.SphereGeometry(GLOBE_RADIUS + 1, 36, 18);
+        const wireEdges = new THREE.EdgesGeometry(wireGeo);
+        const wireOverlay = new THREE.LineSegments(
+            wireEdges,
+            new THREE.LineBasicMaterial({ color: 0x1a3a5c, transparent: true, opacity: 0.15 })
+        );
+        scene.add(wireOverlay);
+        wireGeo.dispose();
 
         // ======== 节点球体 InstancedMesh ========
-        // 用于渲染从 NodeManager 获取的活跃网络节点位置，
-        // 与粒子流的 InstancedMesh 独立，使用标准 instanceMatrix 路径
-        // 以支持 Three.js 的 Raycaster 交互拾取。
         const NODE_MAX_COUNT = 2000;
-        const nodeSphereGeo = new THREE.SphereGeometry(14, 16, 16); // 半径 14（原 8），更清晰可辨
+        const nodeSphereGeo = new THREE.SphereGeometry(14, 16, 16);
         const nodeSphereMat = new THREE.MeshBasicMaterial({
             color: 0x4db8ff,
             transparent: true,
@@ -148,22 +148,48 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
         nodeMesh.count = 0;
         scene.add(nodeMesh);
 
-        // 复用单个 Matrix4 对象来设置每个节点实例的位置变换
         const nodeMatrix = new THREE.Matrix4();
 
-        // ======== 连接线（球心 → 节点射线） ========
-        // 每帧动态更新，可视化从用户位置到各目标服务器的连接方向
-        const CONNECTION_LINE_MAX = 2000;
-        const linePositions = new Float32Array(CONNECTION_LINE_MAX * 2 * 3); // 每条线 2 个顶点 × 3 坐标
-        const lineGeo = new THREE.BufferGeometry();
-        lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
-        lineGeo.setDrawRange(0, 0); // 初始无线段
-        const lineMat = new THREE.LineBasicMaterial({
-            color: 0x1a8cff, transparent: true, opacity: 0.3
+        // ======== 测地线弧连接（大圆弧 - 贴球面） ========
+        // 每条弧由 32 段线段组成，沿球面走测地线，不穿过内部
+        const ARC_SEGMENTS = 32;
+        const arcLines: THREE.Line[] = [];
+        const arcLinePool: THREE.Line[] = []; // 对象池回收
+        const arcLineMat = new THREE.LineBasicMaterial({
+            color: 0x1a8cff, transparent: true, opacity: 0.4
         });
-        const connectionLines = new THREE.LineSegments(lineGeo, lineMat);
-        connectionLines.frustumCulled = false;
-        scene.add(connectionLines);
+
+        /**
+         * 从用户位置到目标节点绘制测地线弧
+         * @param userPos - 用户在球面上的 3D 位置
+         * @param targetPos - 目标节点在球面上的 3D 位置
+         */
+        function getOrCreateArc(userPos: THREE.Vector3, targetPos: THREE.Vector3): THREE.Line {
+            const arcData = computeGeodesicArc(userPos, targetPos, ARC_SEGMENTS);
+            let line: THREE.Line;
+            if (arcLinePool.length > 0) {
+                line = arcLinePool.pop()!;
+                const posAttr = line.geometry.getAttribute('position') as THREE.BufferAttribute;
+                // 更新现有几何体的顶点数据
+                (posAttr.array as Float32Array).set(arcData);
+                posAttr.needsUpdate = true;
+            } else {
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(arcData, 3));
+                line = new THREE.Line(geo, arcLineMat);
+                line.frustumCulled = false;
+            }
+            return line;
+        }
+
+        /** 回收所有弧线到对象池 */
+        function recycleArcs(): void {
+            for (const arc of arcLines) {
+                scene.remove(arc);
+                arcLinePool.push(arc);
+            }
+            arcLines.length = 0;
+        }
 
         // ======== 节点文字标签（Sprite + CanvasTexture） ========
         // 在每个节点球体旁显示 "国家 | IP" 文字，让用户一眼知道流量去了哪里
@@ -323,22 +349,28 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
                 nodeMesh.instanceMatrix.needsUpdate = true;
             }
 
-            // F2. 更新连接线（球心 → 每个节点的射线）
-            const lineVertexCount = nodeCount * 2; // 每条线段 2 个顶点
-            for (let li = 0; li < nodeCount; li++) {
-                const nd = cachedActiveNodes[li];
-                const base = li * 6; // 2 顶点 × 3 坐标
-                // 起点：球心 (0, 0, 0)
-                linePositions[base + 0] = 0;
-                linePositions[base + 1] = 0;
-                linePositions[base + 2] = 0;
-                // 终点：节点位置
-                linePositions[base + 3] = nd.x;
-                linePositions[base + 4] = nd.y;
-                linePositions[base + 5] = nd.z;
+            // F2. 更新测地线弧连接（用户位置 → 每个目标节点的大圆弧）
+            // 用户位置与后端 main.rs 中 lat_lon_to_xyz(30.0, 120.0, 300.0) 一致
+            // 后端公式：x = R*cos(lat)*sin(lon), y = R*sin(lat), z = R*cos(lat)*cos(lon)
+            const USER_LAT_RAD = 30.0 * (Math.PI / 180);
+            const USER_LON_RAD = 120.0 * (Math.PI / 180);
+            const userPos = new THREE.Vector3(
+                GLOBE_RADIUS * Math.cos(USER_LAT_RAD) * Math.sin(USER_LON_RAD),
+                GLOBE_RADIUS * Math.sin(USER_LAT_RAD),
+                GLOBE_RADIUS * Math.cos(USER_LAT_RAD) * Math.cos(USER_LON_RAD)
+            );
+
+            // 节点数量变化时重建弧线
+            if (arcLines.length !== nodeCount) {
+                recycleArcs();
+                for (let ai = 0; ai < nodeCount; ai++) {
+                    const nd = cachedActiveNodes[ai];
+                    const targetPos = new THREE.Vector3(nd.x, nd.y, nd.z);
+                    const arc = getOrCreateArc(userPos, targetPos);
+                    scene.add(arc);
+                    arcLines.push(arc);
+                }
             }
-            lineGeo.setDrawRange(0, lineVertexCount);
-            (lineGeo.attributes['position'] as THREE.BufferAttribute).needsUpdate = true;
 
             // F3. 更新文字标签（每秒最多更新一次，避免频繁 Canvas 重绘）
             // 仅在节点数量变化时重建标签
@@ -397,13 +429,17 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
             nodeSphereGeo.dispose();
             nodeSphereMat.dispose();
             // 清理地球相关资源
-            globeEdges.dispose();
-            globeWire.material.dispose();
-            equatorGeo.dispose();
-            equatorMat.dispose();
-            // 清理连接线
-            lineGeo.dispose();
-            lineMat.dispose();
+            earthGeo.dispose();
+            earthMat.dispose();
+            earthTexture.dispose();
+            wireEdges.dispose();
+            wireOverlay.material.dispose();
+            // 清理测地线弧
+            recycleArcs();
+            for (const pooled of arcLinePool) {
+                pooled.geometry.dispose();
+            }
+            arcLineMat.dispose();
             // 清理标签 Sprite
             recycleLabelSprites();
             for (const pooled of labelSpritePool) {
