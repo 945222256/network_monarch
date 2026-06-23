@@ -41,6 +41,38 @@ export interface NodeInfo {
  */
 export const nodeRegistry: Map<string, NodeInfo> = new Map();
 
+/**
+ * 检测 IP 地址是否属于私有/保留地址段
+ * 
+ * 这些 IP 在 MaxMind GeoIP 数据库中没有条目，
+ * 查询结果默认 lat=0, lon=0 → 被放到 0°N 0°E（几内亚湾），
+ * 产生标签为 "Unknown" 的幽灵节点。
+ * 
+ * 检测范围：
+ * - 10.0.0.0/8       RFC 1918 A 类私有
+ * - 172.16.0.0/12     RFC 1918 B 类私有
+ * - 192.168.0.0/16    RFC 1918 C 类私有
+ * - 127.0.0.0/8       环回地址
+ * - 169.254.0.0/16    APIPA 链路本地
+ * - 0.0.0.0           无效地址
+ * 
+ * @param ip - IPv4 地址字符串
+ * @returns true 表示应该过滤掉
+ */
+function isPrivateIP(ip: string): boolean {
+    if (ip.startsWith('10.')) return true;
+    if (ip.startsWith('192.168.')) return true;
+    if (ip.startsWith('127.')) return true;
+    if (ip.startsWith('169.254.')) return true;
+    if (ip === '0.0.0.0') return true;
+    // 172.16.0.0/12 → 172.16.x.x ~ 172.31.x.x
+    if (ip.startsWith('172.')) {
+        const secondOctet = parseInt(ip.split('.')[1], 10);
+        if (secondOctet >= 16 && secondOctet <= 31) return true;
+    }
+    return false;
+}
+
 /** 节点活跃判定的时间窗口：5 分钟（毫秒值）
  *  原来的 30 秒导致节点在地球上一闪而过看不清，
  *  改为 5 分钟让用户有足够时间观察连接过的所有目的地。
@@ -108,6 +140,13 @@ export function handleMetadata(jsonStr: string): void {
     if (!ip) {
         console.warn('[NodeManager] 收到缺少 ip 字段的元数据消息，已忽略');
         return;
+    }
+
+    // 过滤 RFC 1918 私有 IP 和特殊地址
+    // 这些 IP 没有 GeoIP 数据，会被默认放到 (0°N, 0°E) 几内亚湾
+    // 产生 "Unknown" 标签的幽灵节点，完全无意义
+    if (isPrivateIP(ip)) {
+        return; // 静默跳过，不注册为可视化节点
     }
 
     if (msgType === 'node') {

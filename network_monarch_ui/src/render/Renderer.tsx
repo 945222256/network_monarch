@@ -122,7 +122,10 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
             opacity: 0.85,
         });
         const earthMesh = new THREE.Mesh(earthGeo, earthMat);
-        // Three.js 球体的 UV 映射与标准等距矩形投影一致，无需旋转
+        // 【坐标对齐修复】Three.js SphereGeometry 的 UV theta=0 对应 lon=-90°，
+        // 但等距矩形纹理假设 u=0 → lon=-180°，相差 90° 经度。
+        // 旋转 -π/2 使纹理大陆精确对齐后端 lat_lon_to_xyz 坐标系。
+        earthMesh.rotation.y = -Math.PI / 2;
         scene.add(earthMesh);
 
         // 保留经纬网格线框叠加（增强赛博朋克科技感）
@@ -132,6 +135,7 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
             wireEdges,
             new THREE.LineBasicMaterial({ color: 0x1a3a5c, transparent: true, opacity: 0.15 })
         );
+        wireOverlay.rotation.y = -Math.PI / 2; // 与地球纹理同步旋转
         scene.add(wireOverlay);
         wireGeo.dispose();
 
