@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 // WebGPURenderer 必须使用 three/webgpu 导入以支持 TSL
 import { WebGPURenderer } from 'three/webgpu';
+// OrbitControls 提供鼠标拖拽旋转、滚轮缩放、右键平移的 3D 交互能力
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 // 导入基于 TSL 构造的节点材质
 import { createParticleMaterial } from './Shaders';
@@ -49,7 +51,29 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
         scene.background = new THREE.Color(0x050505);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-        camera.position.z = 1000;
+        camera.position.set(0, 200, 1200);
+
+        // ======== OrbitControls 3D 交互系统 ========
+        // 左键拖拽 = 轨道旋转，滚轮 = 缩放，右键 = 平移
+        const controls = new OrbitControls(camera, canvas);
+        controls.enableDamping = true;        // 启用惯性阻尼，操作手感更顺滑
+        controls.dampingFactor = 0.08;        // 阻尼系数
+        controls.minDistance = 200;           // 最近缩放距离
+        controls.maxDistance = 5000;          // 最远缩放距离
+        controls.autoRotate = true;           // 默认开启自动旋转（类似展厅效果）
+        controls.autoRotateSpeed = 0.5;       // 自动旋转速度（较慢，营造氛围感）
+        controls.target.set(0, 0, 0);         // 旋转中心 = 世界原点
+
+        // 用户交互时暂停自动旋转，5 秒无操作后恢复
+        let userInteractionTimer: ReturnType<typeof setTimeout> | null = null;
+        const pauseAutoRotate = () => {
+            controls.autoRotate = false;
+            if (userInteractionTimer) clearTimeout(userInteractionTimer);
+            userInteractionTimer = setTimeout(() => {
+                controls.autoRotate = true;
+            }, 5000); // 5 秒无操作后恢复自动旋转
+        };
+        controls.addEventListener('start', pauseAutoRotate);
 
         // 2. 几何体与材质的零分配初始化
         // bitECS 0.3.x 的数组组件 [Types.f32, 3] 是嵌套结构 Array<Float32Array>，
@@ -153,6 +177,7 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            controls.update(); // resize 后同步更新 controls
         };
         window.addEventListener('resize', handleResize);
 
@@ -195,10 +220,8 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
                 protocolIdAttr.needsUpdate = true;
             }
 
-            // E. 让摄像机缓慢旋转，增加 3D 纵深感
-            camera.position.x = Math.sin(world.time.elapsed * 0.1) * 1200;
-            camera.position.z = Math.cos(world.time.elapsed * 0.1) * 1200;
-            camera.lookAt(0, 0, 0);
+            // E. 更新 OrbitControls（处理惯性阻尼和自动旋转）
+            controls.update();
 
             // F. 更新节点球体 InstancedMesh
             cachedActiveNodes = getActiveNodes();
@@ -228,6 +251,9 @@ export const Renderer: React.FC<RendererProps> = ({ onNodeHover }) => {
             window.removeEventListener('resize', handleResize);
             // 【M17 修复】使用局部变量 canvas 而非 canvasRef.current
             canvas.removeEventListener('mousemove', handleMouseMove);
+            controls.removeEventListener('start', pauseAutoRotate);
+            controls.dispose();
+            if (userInteractionTimer) clearTimeout(userInteractionTimer);
             renderer.setAnimationLoop(null);
             if (renderer.dispose) renderer.dispose();
             geometry.dispose();
